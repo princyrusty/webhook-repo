@@ -1,11 +1,12 @@
 from flask import Flask, request, jsonify, render_template
 from pymongo import MongoClient
 from datetime import datetime
+import os
 
 app = Flask(__name__)
 
-# MongoDB Atlas URI
-MONGO_URI = "mongodb+srv://webhookuser:<db_password>@githook.5hhcs1j.mongodb.net/?appName=GitHook"
+# Use Environment Variable for MongoDB URI
+MONGO_URI = os.environ.get(mongodb+srv://webhookuser:<db_password>@githook.5hhcs1j.mongodb.net/?appName=GitHook)
 client = MongoClient(MONGO_URI)
 db = client["github_webhooks"]
 collection = db["events"]
@@ -22,26 +23,35 @@ def github_webhook():
     author = ""
     from_branch = ""
     to_branch = ""
-    action = event.upper()
+    action = ""
 
-    # PUSH EVENT
+    # ================= PUSH EVENT =================
     if event == "push":
+        action = "PUSH"
         author = data["pusher"]["name"]
         from_branch = data["ref"].split("/")[-1]
         to_branch = from_branch
+        request_id = data.get("after")
 
-    # PULL REQUEST EVENT
+    # ================= PULL REQUEST EVENT =================
     elif event == "pull_request":
-        author = data["pull_request"]["user"]["login"]
-        from_branch = data["pull_request"]["head"]["ref"]
-        to_branch = data["pull_request"]["base"]["ref"]
+        pr = data["pull_request"]
+        author = pr["user"]["login"]
+        from_branch = pr["head"]["ref"]
+        to_branch = pr["base"]["ref"]
+        request_id = pr["id"]
 
-    # MERGE DETECTION
-    if event == "pull_request" and data["action"] == "closed" and data["pull_request"]["merged"]:
-        action = "MERGE"
+        # Check if merged
+        if data["action"] == "closed" and pr["merged"]:
+            action = "MERGE"
+        else:
+            action = "PULL_REQUEST"
+
+    else:
+        return jsonify({"msg": "Event ignored"}), 200
 
     doc = {
-        "request_id": data.get("after", data.get("pull_request", {}).get("id", "")),
+        "request_id": str(request_id),
         "author": author,
         "action": action,
         "from_branch": from_branch,
@@ -57,7 +67,8 @@ def get_events():
     events = list(collection.find().sort("timestamp", -1).limit(10))
     for e in events:
         e["_id"] = str(e["_id"])
+        e["timestamp"] = e["timestamp"].isoformat()
     return jsonify(events)
 
 if __name__ == "__main__":
-    app.run()
+    app.run(debug=True)
