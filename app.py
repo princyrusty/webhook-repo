@@ -1,12 +1,10 @@
 from flask import Flask, request, jsonify, render_template
 from pymongo import MongoClient
 from datetime import datetime
-import os
 
 app = Flask(__name__)
 
-# Use Environment Variable for MongoDB URI
-MONGO_URI = os.environ.get(mongodb+srv://webhookuser:<db_password>@githook.5hhcs1j.mongodb.net/?appName=GitHook)
+MONGO_URI = mongodb+srv://webhookuser:<db_password>@githook.5hhcs1j.mongodb.net/?appName=GitHook
 client = MongoClient(MONGO_URI)
 db = client["github_webhooks"]
 collection = db["events"]
@@ -25,7 +23,6 @@ def github_webhook():
     to_branch = ""
     action = ""
 
-    # ================= PUSH EVENT =================
     if event == "push":
         action = "PUSH"
         author = data["pusher"]["name"]
@@ -33,7 +30,6 @@ def github_webhook():
         to_branch = from_branch
         request_id = data.get("after")
 
-    # ================= PULL REQUEST EVENT =================
     elif event == "pull_request":
         pr = data["pull_request"]
         author = pr["user"]["login"]
@@ -41,14 +37,13 @@ def github_webhook():
         to_branch = pr["base"]["ref"]
         request_id = pr["id"]
 
-        # Check if merged
         if data["action"] == "closed" and pr["merged"]:
             action = "MERGE"
         else:
             action = "PULL_REQUEST"
 
     else:
-        return jsonify({"msg": "Event ignored"}), 200
+        return jsonify({"msg": "ignored"}), 200
 
     doc = {
         "request_id": str(request_id),
@@ -71,4 +66,4 @@ def get_events():
     return jsonify(events)
 
 if __name__ == "__main__":
-    app.run(debug=True)
+    app.run(port=5000)
