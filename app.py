@@ -4,66 +4,82 @@ from datetime import datetime
 
 app = Flask(__name__)
 
-MONGO_URI = mongodb+srv://webhookuser:<db_password>@githook.5hhcs1j.mongodb.net/?appName=GitHook
+# 🔹 MongoDB Connection (Your Provided URI)
+MONGO_URI = "mongodb+srv://webhookuser:webhookpass123@githook.5hhcs1j.mongodb.net/github_webhooks?retryWrites=true&w=majority"
+
 client = MongoClient(MONGO_URI)
-db = client["github_webhooks"]
-collection = db["events"]
+db = client.github_webhooks
+collection = db.events
+
+
+def format_timestamp(timestamp_str):
+    """
+    Convert GitHub UTC timestamp to required format:
+    01 April 2021 - 09:30 PM UTC
+    """
+    dt = datetime.strptime(timestamp_str, "%Y-%m-%dT%H:%M:%SZ")
+    return dt.strftime("%d %B %Y - %I:%M %p UTC")
+
 
 @app.route("/")
 def home():
     return render_template("index.html")
 
+
 @app.route("/webhook", methods=["POST"])
-def github_webhook():
+def webhook():
     data = request.json
-    event = request.headers.get("X-GitHub-Event")
+    event_type = request.headers.get("X-GitHub-Event")
 
-    author = ""
-    from_branch = ""
-    to_branch = ""
-    action = ""
+    # ================= PUSH EVENT =================
+    if event_type == "push":
+        if data.get("head_commit") is None:
+            return jsonify({"message": "No head commit"}), 200
 
-    if event == "push":
-        action = "PUSH"
         author = data["pusher"]["name"]
-        from_branch = data["ref"].split("/")[-1]
-        to_branch = from_branch
-        request_id = data.get("after")
+        to_branch = data["ref"].split("/")[-1]
+        timestamp = format_timestamp(data["head_commit"]["timestamp"])
 
-    elif event == "pull_request":
+        document = {
+            "request_id": data["head_commit"]["id"],
+            "author": author,
+            "action": "PUSH",
+            "from_branch": None,
+            "to_branch": to_branch,
+            "timestamp": timestamp
+        }
+
+        collection.insert_one(document)
+
+    # ================= PULL REQUEST EVENT =================
+    elif event_type == "pull_request":
         pr = data["pull_request"]
-        author = pr["user"]["login"]
-        from_branch = pr["head"]["ref"]
-        to_branch = pr["base"]["ref"]
-        request_id = pr["id"]
 
+        # Detect MERGE
         if data["action"] == "closed" and pr["merged"]:
-            action = "MERGE"
+            action_type = "MERGE"
         else:
-            action = "PULL_REQUEST"
+            action_type = "PULL_REQUEST"
 
-    else:
-        return jsonify({"msg": "ignored"}), 200
+        document = {
+            "request_id": str(pr["id"]),
+            "author": pr["user"]["login"],
+            "action": action_type,
+            "from_branch": pr["head"]["ref"],
+            "to_branch": pr["base"]["ref"],
+            "timestamp": format_timestamp(pr["created_at"])
+        }
 
-    doc = {
-        "request_id": str(request_id),
-        "author": author,
-        "action": action,
-        "from_branch": from_branch,
-        "to_branch": to_branch,
-        "timestamp": datetime.utcnow()
-    }
+        collection.insert_one(document)
 
-    collection.insert_one(doc)
-    return jsonify({"status": "stored"}), 200
+    return jsonify({"status": "success"}), 200
 
-@app.route("/api/events")
+
+@app.route("/events", methods=["GET"])
 def get_events():
-    events = list(collection.find().sort("timestamp", -1).limit(10))
-    for e in events:
-        e["_id"] = str(e["_id"])
-        e["timestamp"] = e["timestamp"].isoformat()
+    events = list(collection.find({}, {"_id": 0}).sort("timestamp", -1))
     return jsonify(events)
 
+
 if __name__ == "__main__":
-    app.run(port=5000)
+    app.run(host="0.0.0.0", port=5000)
