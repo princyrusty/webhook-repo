@@ -1,6 +1,7 @@
 from flask import Flask, request, jsonify, render_template
 from pymongo import MongoClient
 from datetime import datetime
+from dateutil import parser
 
 app = Flask(__name__)
 
@@ -13,13 +14,8 @@ collection = db.events
 
 
 def format_timestamp(timestamp_str):
-    """
-    Convert GitHub UTC timestamp to required format:
-    01 April 2021 - 09:30 PM UTC
-    """
-    dt = datetime.strptime(timestamp_str, "%Y-%m-%dT%H:%M:%SZ")
+    dt = parser.parse(timestamp_str)
     return dt.strftime("%d %B %Y - %I:%M %p UTC")
-
 
 @app.route("/")
 def home():
